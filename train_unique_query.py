@@ -10,7 +10,8 @@ obsrv_lengths = []
 log_likelihoods = []
 token_list = []
 
-f = open("training.log")
+f = open("slide.log")
+sample_count = 0
 for line in f:
     sql = line.split('Query')
     if(len(sql)==1):
@@ -19,30 +20,43 @@ for line in f:
         sql = sql[1].strip()
     res = sqlparse.parse(sql)
     stmt = res[0]
-    print stmt.tokens
+
+    #flattening where clause
+    where_token = None
+    idx = -1
+    while True:
+        where_token = stmt.token_next_by_instance(idx, sqlparse.sql.Where)
+        if not where_token:
+            break
+        idx = stmt.token_index(where_token)+1
+        stmt.tokens += list(where_token.flatten())
     #repr_name = [ [token._get_repr_name()] for token in stmt.tokens]
     #add unseen token to token list.
     token_list += list(set([token._get_repr_name() for token in stmt.tokens if token._get_repr_name() !='Whitespace'])
                        - set(token_list))
     repr_name = [[token_list.index(token._get_repr_name())] for token in stmt.tokens if token._get_repr_name() !='Whitespace']
-    observations.append(repr_name)
-    obsrv_lengths.append(len(repr_name))
+    #only insert unseen query
+
+    if(repr_name not in observations):
+        observations.append(repr_name)
+        obsrv_lengths.append(len(repr_name))
+
+    sample_count = sample_count + 1
     #print repr_name
     #w.write( ','.join(repr_name) +"\n")
     #count = count+1
 
 print observations
+print sample_count
 #print obsrv_length
-
 observations = np.concatenate(observations)
 
 model = hmm.MultinomialHMM(n_components=27, n_iter=100, random_state=1)
 #import ipdb; ipdb.set_trace()
 model.fit(observations, obsrv_lengths)  
-f.close()
 
-f2 = open('training.log')
-for line in f2:
+f.seek(0)
+for line in f:
     sql = line.split('\n')[0].split('Query')
     if(len(sql)==1):
         continue
@@ -51,6 +65,7 @@ for line in f2:
     res = sqlparse.parse(sql)
     stmt = res[0]
     print "sql: %s" % sql
+    print stmt.tokens
     repr_name = [ [token_list.index(token._get_repr_name())] for token in stmt.tokens if token._get_repr_name() !='Whitespace']
     print repr_name
     log_likelihood = model.score(repr_name)
@@ -59,10 +74,10 @@ for line in f2:
 
 threshold = min(log_likelihoods)
 model.anomaly_threshold = threshold
+model.token_list = token_list
 #w.close
+f.close
 print threshold
-f2.close
-exit(0)
 #print("training finish")
 #print model.transmat_
 #exit(0)
@@ -89,6 +104,5 @@ exit(0)
 #print "--------------------- start probability --------------------"
 #for idx, startprob in enumerate(model.startprob_):
 #    print "state %d: %E" % (idx, startprob)
-exit(0)
 
-joblib.dump(model, "sqli-hmm.pkl");
+joblib.dump(model, "sqli-hmm-bee.pkl");
